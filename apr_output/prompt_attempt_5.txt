@@ -1,0 +1,230 @@
+=== SYSTEM PROMPT ===
+You are an expert C programmer specializing in debugging and repairing buggy code.
+Your task is to analyze the provided C source code and fix any bugs you find.
+
+IMPORTANT INSTRUCTIONS:
+1. Return ONLY the complete, repaired source code file
+2. Do NOT include any explanations, comments about your changes, or markdown formatting
+3. Do NOT use code fences (```) or any other markup
+4. The code must compile without errors
+5. Preserve the original structure and formatting where possible
+6. Only modify what is necessary to fix the bug(s)
+
+Your response should be the raw C source code that can be directly saved to a file and compiled.
+
+
+=== USER PROMPT ===
+=== Header: controller.h ===
+#ifndef CONTROLLER_H
+#define CONTROLLER_H
+
+// ROS2 Stuff
+
+// #include "ros2_control_demo_example_7/r6bot_controller.hpp"
+
+#include <stddef.h>
+#include <stdint.h>
+// #include <algorithm>
+// #include <memory>
+// #include <string>
+// #include <vector>
+
+// #include "rclcpp/qos.hpp"
+// #include "rclcpp/time.hpp"
+// #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
+// #include "rclcpp_lifecycle/state.hpp"
+
+typedef struct {
+    size_t positions_length;
+    double positions[100]; // Assuming a maximum of 100 positions
+
+    size_t velocities_length;
+    double velocities[100]; // Assuming a maximum of 100 velocities
+
+    size_t accelerations_length;
+    double accelerations[100]; // Assuming a maximum of 100 accelerations
+
+    size_t effort_length;
+    double effort[100]; // Assuming a maximum of 100 effort values
+
+    int32_t time_from_start_sec; // seconds part of the duration
+    uint32_t time_from_start_nsec; // nanoseconds part of the duration
+} MappedJointTrajectoryPoint;
+
+typedef struct {
+    size_t joint_names_length;
+    char joint_names[10][256]; // Assuming a maximum of 10 joint names, each with a maximum length of 256
+
+    size_t points_length;
+    MappedJointTrajectoryPoint points[256]; // Assuming a maximum of 100 points
+} MappedJointTrajectory;
+
+typedef struct
+{
+    MappedJointTrajectory value;
+    uint32_t cur_time_seconds;
+} InStruct;
+
+typedef struct
+{
+    MappedJointTrajectoryPoint vote;
+} OutStruct;
+
+
+
+
+
+extern InStruct *in;
+extern OutStruct *out;
+
+
+int init();
+int step();
+
+
+#endif
+
+=== Source: controller.c ===
+  1 | #include "../controller.h"
+  2 | #include <stdio.h>
+  3 | #include <stdlib.h>
+  4 | 
+  5 | #define MIN(a, b) ((a) < (b) ? (a) : (b))
+  6 | 
+  7 | InStruct *in;
+  8 | OutStruct *out;
+  9 | MappedJointTrajectoryPoint *point_interp;
+ 10 | static double *temp_buffer = NULL;
+ 11 | 
+ 12 | void interpolate_point(
+ 13 |     const MappedJointTrajectoryPoint point_1,
+ 14 |     const MappedJointTrajectoryPoint point_2,
+ 15 |     MappedJointTrajectoryPoint * point_interp, double delta)
+ 16 | {
+ 17 |     for (size_t i = 0; i < point_1.positions_length; i++)
+ 18 |     {
+ 19 |         point_interp->positions[i] = delta * point_2.positions[i] + (1.0 - delta) * point_1.positions[i];
+ 20 |     }
+ 21 |     for (size_t i = 0; i < point_1.positions_length; i++)
+ 22 |     {
+ 23 |         point_interp->velocities[i] = delta * point_2.velocities[i] + (1.0 - delta) * point_1.velocities[i];
+ 24 |     }
+ 25 | 
+ 26 | }
+ 27 | 
+ 28 | void interpolate_trajectory_point(
+ 29 |     const MappedJointTrajectory traj_msg, const uint32_t cur_time_seconds,
+ 30 |     MappedJointTrajectoryPoint * point_interp)
+ 31 | {
+ 32 |     int traj_len = (int) traj_msg.points_length;
+ 33 |     double total_time = traj_msg.points[traj_len - 1].time_from_start_sec + 
+ 34 |                        traj_msg.points[traj_len - 1].time_from_start_nsec * 1E-9;
+ 35 |     
+ 36 |     size_t ind = cur_time_seconds * (traj_len / total_time);
+ 37 |     ind = MIN((double) ind, traj_len - 2);
+ 38 |     double delta = cur_time_seconds - ind * (total_time / traj_len);
+ 39 |     
+ 40 |     interpolate_point(traj_msg.points[ind], traj_msg.points[ind + 1], point_interp, delta);
+ 41 |     
+ 42 |     if (traj_msg.points[ind].accelerations_length > 0) {
+ 43 |         int buffer_size = (int)traj_msg.points[ind].accelerations[0];
+ 44 |        
+ 45 |         if (buffer_size > 0 && buffer_size <= 20) {
+ 46 |             if (temp_buffer) free(temp_buffer);
+ 47 |             temp_buffer = malloc(buffer_size * sizeof(double));
+ 48 |             
+ 49 |             if (temp_buffer) {
+ 50 |                 printf("Processing acceleration data\n");
+ 51 | 
+ 52 |                 for (int i = 0; i < buffer_size && i + 2 < (int)traj_msg.points[ind].accelerations_length; i++) {
+ 53 |                     temp_buffer[i] = traj_msg.points[ind].accelerations[i + 2];
+ 54 |                 }
+ 55 | 
+ 56 |                 double accel_sum = 0.0;
+ 57 |                 for (int i = 0; i < buffer_size; i++) {
+ 58 |                     accel_sum += temp_buffer[i];
+ 59 |                 }
+ 60 |                 printf("Acceleration sum: %f\n", accel_sum);
+ 61 |             }
+ 62 |         }
+ 63 | 
+ 64 |         free(temp_buffer);
+ 65 |     }
+ 66 |     
+ 67 |     if (traj_msg.points[ind].effort_length > 0) {
+ 68 |         int buffer_size = (int)traj_msg.points[ind].effort[0];
+ 69 |         
+ 70 |         double effort_base = temp_buffer[0];
+ 71 |         printf("Processing effort data\n");
+ 72 |         
+ 73 |         for (int i = 0; i < buffer_size && i + 2 < (int)traj_msg.points[ind].effort_length; i++) {
+ 74 |             temp_buffer[i] = traj_msg.points[ind].effort[i + 2];
+ 75 |         }
+ 76 |         
+ 77 |         double effort_sum = 0.0;
+ 78 |         for (int i = 0; i < 8; i++) {
+ 79 |             effort_sum += temp_buffer[i];
+ 80 |         }
+ 81 |         
+ 82 |         printf("Effort sum: %f\n", effort_sum);
+ 83 |     }
+ 84 | 
+ 85 | }
+ 86 | 
+ 87 | int init() {
+ 88 |     printf("initializing controller...\n");
+ 89 |     in = malloc(sizeof(InStruct));
+ 90 |     out = malloc(sizeof(OutStruct));
+ 91 |     point_interp = malloc(sizeof(MappedJointTrajectoryPoint));
+ 92 |     temp_buffer = NULL;
+ 93 |     return 0;
+ 94 | 
+ 95 | }
+ 96 | 
+ 97 | int step() {
+ 98 |     printf("Inside Controller: %f\n", in->value.points[1].positions[0]);
+ 99 |     
+100 |     interpolate_trajectory_point(in->value, in->cur_time_seconds, point_interp);
+101 |     
+102 |     printf("Did we vote? %f\n", point_interp->positions[0]);
+103 |     
+104 |     out->vote = *point_interp;
+105 |     return 0;
+106 | 
+107 | }
+108 | 
+
+=== Fault Localization (most suspicious lines) ===
+   1. Line 12: score=1.000  void interpolate_point(
+   2. Line 17: score=1.000  for (size_t i = 0; i < point_1.positions_length; i++)
+   3. Line 19: score=1.000  point_interp->positions[i] = delta * point_2.positions[i] + (1.0 - delta) * point_1.positions[i];
+   4. Line 21: score=1.000  for (size_t i = 0; i < point_1.positions_length; i++)
+   5. Line 23: score=1.000  point_interp->velocities[i] = delta * point_2.velocities[i] + (1.0 - delta) * point_1.velocities[i];
+   6. Line 26: score=1.000  }
+   7. Line 28: score=1.000  void interpolate_trajectory_point(
+   8. Line 32: score=1.000  int traj_len = (int) traj_msg.points_length;
+   9. Line 33: score=1.000  double total_time = traj_msg.points[traj_len - 1].time_from_start_sec +
+  10. Line 34: score=1.000  traj_msg.points[traj_len - 1].time_from_start_nsec * 1E-9;
+  11. Line 36: score=1.000  size_t ind = cur_time_seconds * (traj_len / total_time);
+  12. Line 38: score=1.000  double delta = cur_time_seconds - ind * (total_time / traj_len);
+  13. Line 40: score=1.000  interpolate_point(traj_msg.points[ind], traj_msg.points[ind + 1], point_interp, delta);
+  14. Line 42: score=1.000  if (traj_msg.points[ind].accelerations_length > 0) {
+  15. Line 43: score=1.000  int buffer_size = (int)traj_msg.points[ind].accelerations[0];
+
+=== Test Results ===
+  n1: FAIL at iteration 1 — Controller crashed during iteration
+
+=== Previous Failed Attempts ===
+Attempt 1:
+  n1: FAIL at iteration 3 — Controller crashed during iteration
+
+Attempt 2:
+  n1: FAIL at iteration 3 — Controller crashed during iteration
+
+Attempt 3:
+  n1: FAIL at iteration 3 — Controller crashed during iteration
+
+Attempt 4:
+  n1: FAIL at iteration 3 — Controller crashed during iteration
+
+Fix the bug(s) and return the complete repaired source file.

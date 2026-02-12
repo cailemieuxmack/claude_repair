@@ -1,0 +1,75 @@
+--- /home/jazbo/Vanderbilt/Research/N-Version_APR/llm-repair/claude_llm-repair/test_examples/controller.c	2026-02-04 12:45:09.018380016 -0600
++++ /home/jazbo/Vanderbilt/Research/N-Version_APR/llm-repair/claude_llm-repair/apr_output/controller.c	2026-02-09 11:02:50.740493608 -0600
+@@ -14,11 +14,13 @@
+     const MappedJointTrajectoryPoint point_2,
+     MappedJointTrajectoryPoint * point_interp, double delta)
+ {
++    point_interp->positions_length = point_1.positions_length;
+     for (size_t i = 0; i < point_1.positions_length; i++)
+     {
+         point_interp->positions[i] = delta * point_2.positions[i] + (1.0 - delta) * point_1.positions[i];
+     }
+-    for (size_t i = 0; i < point_1.positions_length; i++)
++    point_interp->velocities_length = point_1.velocities_length;
++    for (size_t i = 0; i < point_1.velocities_length; i++)
+     {
+         point_interp->velocities[i] = delta * point_2.velocities[i] + (1.0 - delta) * point_1.velocities[i];
+     }
+@@ -65,26 +67,36 @@
+             }
+         }
+ 
+-        free(temp_buffer);
++        if (temp_buffer) {
++            free(temp_buffer);
++            temp_buffer = NULL;
++        }
+     }
+     
+     if (traj_msg.points[ind].effort_length > 0) {
+         int buffer_size = (int)traj_msg.points[ind].effort[0];
+         
+-        // using same freed buffer
+-        double effort_base = temp_buffer[0];
+-        printf("Processing effort data\n");
+-        
+-        for (int i = 0; i < buffer_size && i + 2 < (int)traj_msg.points[ind].effort_length; i++) {
+-            temp_buffer[i] = traj_msg.points[ind].effort[i + 2];
+-        }
+-        
+-        double effort_sum = 0.0;
+-        for (int i = 0; i < 8; i++) {
+-            effort_sum += temp_buffer[i];
++        if (buffer_size > 0 && buffer_size <= 20) {
++            temp_buffer = malloc(buffer_size * sizeof(double));
++            
++            if (temp_buffer) {
++                printf("Processing effort data\n");
++                
++                for (int i = 0; i < buffer_size && i + 2 < (int)traj_msg.points[ind].effort_length; i++) {
++                    temp_buffer[i] = traj_msg.points[ind].effort[i + 2];
++                }
++                
++                double effort_sum = 0.0;
++                for (int i = 0; i < buffer_size && i < 8; i++) {
++                    effort_sum += temp_buffer[i];
++                }
++                
++                printf("Effort sum: %f\n", effort_sum);
++                
++                free(temp_buffer);
++                temp_buffer = NULL;
++            }
+         }
+-        
+-        printf("Effort sum: %f\n", effort_sum);
+     }
+ 
+ }
+@@ -109,4 +121,4 @@
+     out->vote = *point_interp;
+     return 0;
+ 
+-}
++}
+\ No newline at end of file
