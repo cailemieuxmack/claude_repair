@@ -200,8 +200,8 @@ def test_data_file_parsing():
 
     # Sanity checks
     assert isinstance(vote.idx, int)
-    assert len(vote.point.positions) == 100
-    assert len(vote.point.velocities) == 100
+    assert len(vote.positions) == 100
+    assert len(vote.velocities) == 100
 
     # The comparison vector should have 12 elements
     vec = vote.get_comparison_vector()

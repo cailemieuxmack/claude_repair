@@ -18,6 +18,7 @@ from typing import Optional
 
 from .gcov_parser import GcovParser
 from ..localization.sbfl import CoverageMatrix
+from ..testing.runner import TestCaseInfo
 
 
 @dataclass
@@ -27,35 +28,6 @@ class CompileResult:
     executable: Optional[Path] = None
     error: Optional[str] = None
     command: str = ""
-
-
-@dataclass
-class TestCaseInfo:
-    """Information about a test case."""
-    name: str
-    path: Path
-    num_iterations: int
-    expected_pass: bool  # True for p*, False for n*
-
-    @classmethod
-    def from_directory(cls, test_dir: Path) -> "TestCaseInfo":
-        """Create TestCaseInfo from a test case directory."""
-        name = test_dir.name
-        expected_pass = name.startswith('p')
-
-        # Count iterations by finding t1, t2, t3, ... files
-        num_iterations = 0
-        i = 1
-        while (test_dir / f"t{i}").exists():
-            num_iterations = i
-            i += 1
-
-        return cls(
-            name=name,
-            path=test_dir,
-            num_iterations=num_iterations,
-            expected_pass=expected_pass
-        )
 
 
 @dataclass

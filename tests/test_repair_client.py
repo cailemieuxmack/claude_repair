@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from apr_tool.repair import ClaudeClient
+from apr_tool.repair.prompt_builder import RepairPromptContext
 
 
 def test_repair_from_file():
@@ -51,10 +52,11 @@ int main() {
 }
 """
 
-    response = client.repair_from_code(
+    context = RepairPromptContext(
         source_code=buggy_code,
         source_filename="buggy.c",
     )
+    response = client.repair_from_context(context)
 
     print("=== Repair Response ===")
     print(f"Model: {response.model}")

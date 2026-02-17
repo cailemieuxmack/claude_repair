@@ -22,6 +22,7 @@ from typing import Optional
 from .coverage.gcov_parser import GcovParser
 from .localization.sbfl import CoverageMatrix, SBFLLocalizer, read_source_lines
 from .testing.runner import TestRunner, TestCaseInfo, TestCaseResult
+from .testing.data_format import parse_state_file, format_state_text
 from .repair.claude_client import ClaudeClient
 from .repair.prompt_builder import (
     RepairPromptContext, PreviousAttempt, SYSTEM_PROMPT, build_repair_prompt,
@@ -339,6 +340,28 @@ def main(argv=None):
         # --- Phase 3: Repair loop ---
         log("Phase 3: Repair loop", args.verbose)
 
+        # Build deserialized input text for the first failing test iteration
+        failing_test_input = None
+        tc_by_name = {tc.name: tc for tc in test_cases}
+        for name, result in baseline_results.items():
+            if not result.passed and result.failed_at_iteration is not None:
+                tc = tc_by_name.get(name)
+                if tc is None:
+                    continue
+                input_file = tc.path / f"t{result.failed_at_iteration}"
+                if input_file.exists():
+                    try:
+                        state = parse_state_file(input_file)
+                        failing_test_input = (
+                            f"Test case {name}, iteration {result.failed_at_iteration}:\n"
+                            + format_state_text(state)
+                        )
+                        log(f"Parsed failing input: {name}/t{result.failed_at_iteration} "
+                            f"({len(failing_test_input)} chars)", args.verbose)
+                    except Exception as e:
+                        log(f"Warning: failed to parse input {input_file}: {e}", args.verbose)
+                break  # only include the first failing test
+
         client = ClaudeClient()
         original_source = source.read_text()
         previous_attempts: list[PreviousAttempt] = []
@@ -355,6 +378,7 @@ def main(argv=None):
                 suspicious_lines=ranked,
                 test_results=list(baseline_results.values()),
                 previous_attempts=previous_attempts,
+                failing_test_input=failing_test_input,
             )
 
             # Save the prompt being sent

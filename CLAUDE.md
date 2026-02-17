@@ -11,15 +11,38 @@ A Python-based automated program repair tool for C controller programs. Uses spe
 ```
 /workspace/
 ├── CLAUDE.md                     # This file - project documentation
-├── apr_tool/                     # Main tool implementation (to be created)
+├── apr_tool/                     # Main tool implementation
 │   ├── __init__.py
+│   ├── __main__.py               # Allows `python -m apr_tool`
 │   ├── main.py                   # CLI entry point & repair loop
-│   ├── config.py                 # Configuration dataclass
 │   ├── coverage/                 # Coverage collection
+│   │   ├── __init__.py
+│   │   ├── collector.py          # CoverageCollector class (unused by main.py)
+│   │   ├── coverage_driver.cpp   # Lightweight C++ driver for gcov collection
+│   │   └── gcov_parser.py        # Gcov output parser
 │   ├── localization/             # SBFL implementation
+│   │   ├── __init__.py
+│   │   └── sbfl.py               # CoverageMatrix, SBFLLocalizer, metrics
 │   ├── testing/                  # Test runner & validation
-│   ├── repair/                   # Claude API & prompt building
-│   └── utils/                    # Utilities
+│   │   ├── __init__.py
+│   │   ├── data_format.py        # Vote & State dataclasses, binary parsing
+│   │   ├── runner.py             # TestRunner, TestCaseInfo, IPC
+│   │   └── validator.py          # Cosine distance & validation
+│   └── repair/                   # Claude API & prompt building
+│       ├── __init__.py
+│       ├── claude_client.py      # ClaudeClient (Anthropic SDK)
+│       ├── prompt_builder.py     # Prompt construction with SBFL context
+│       └── response_parser.py    # Extract code from LLM responses
+├── tests/                        # Test suite
+│   ├── __init__.py
+│   ├── run_all_tests.py          # Test runner script
+│   ├── test_sbfl.py              # SBFL unit tests (22 tests)
+│   ├── test_gcov_parser.py       # Gcov parser tests (6 tests)
+│   ├── test_data_format.py       # Data format tests (17 tests)
+│   ├── test_validator.py         # Validator tests (15 tests)
+│   ├── test_integration_sbfl.py  # SBFL integration test
+│   ├── test_runner_integration.py # Runner integration tests (incl. ASan)
+│   └── test_repair_client.py     # Manual API test (requires ANTHROPIC_API_KEY)
 └── test_examples/                # Example buggy controller & test infrastructure
     ├── controller.c              # Example buggy controller (use-after-free)
     ├── controller.h              # Controller interface header
@@ -143,6 +166,15 @@ For each test case:
 3. Collect cumulative coverage (union of all iterations)
 4. Record pass/fail for test case as a whole
 
+### Coverage Driver
+
+The main IPC-based `test_driver.cpp` cannot be used for gcov because it runs in an infinite loop and must be killed (no clean exit), and buggy controllers may corrupt the heap causing gcov's atexit handler to fail.
+
+Instead, `apr_tool/coverage/coverage_driver.cpp` is a lightweight driver that:
+- Calls controller functions directly (no IPC)
+- Flushes gcov data via `__gcov_dump()` after each iteration
+- Uses `_exit()` to skip atexit handlers on corrupted heaps
+
 ### Ochiai Formula
 
 ```
@@ -190,10 +222,11 @@ Required:
 - `--test-dir`: Base directory containing n1/, n2/, p1/, p2/, etc.
 
 Optional:
-- `--config`: Path to configuration JSON
 - `--output`: Output directory (default: ./apr_output)
 - `--max-attempts`: Max repair attempts (default: 5)
 - `--epsilon`: Cosine distance threshold (default: 0.5)
+- `--top-lines`: Top suspicious lines for SBFL (default: 15)
+- `--enable-asan`: Enable AddressSanitizer
 - `--verbose`: Enable verbose logging
 
 ### Outputs
@@ -201,27 +234,36 @@ Optional:
 - `controller.c`: Repaired source file
 - `controller.c.patch`: Unified diff
 - `repair_report.json`: Detailed repair report
+- `prompt_attempt_N.txt`: Saved prompts for each attempt
 
 ### Repair Loop
 
 1. Discover test cases (n*, p*)
-2. Collect coverage for all test cases
-3. Compute fault localization (Ochiai)
-4. For each attempt (up to max_attempts):
-   a. Build prompt with buggy code, fault localization, test results
-   b. Call Claude API for repair
-   c. Parse response (extract ANALYSIS, FIX, CODE)
-   d. Compile and validate repair
-   e. If all tests pass, return success
-   f. Otherwise, include failure in next prompt
+2. Compile coverage runner and collect gcov coverage for all test cases
+3. Compile real executable and run baseline validation via IPC
+4. Update coverage matrix with actual pass/fail from baseline
+5. Compute fault localization (Ochiai)
+6. For each attempt (up to max_attempts):
+   a. Build prompt with buggy code, fault localization, test results, previous failures
+   b. Save prompt to output directory
+   c. Call Claude API for repair
+   d. Write repaired code to temp workdir (originals never modified)
+   e. Compile and run all tests
+   f. If all tests pass, save repaired source, patch, and report; exit success
+   g. Otherwise, record failure and continue
 
 ### Configuration Defaults
 
 ```python
-compile_command = "g++ -g -fprofile-arcs -ftest-coverage -o controller test_driver.cpp controller.c"
-# For ASan: add "-fsanitize=address -fno-omit-frame-pointer" to compile flags
+# Compilation: separate gcc/g++ compile + link (in main.py)
+# gcc -g {extra_flags} -c controller.c -o controller.o
+# g++ -g {extra_flags} -c test_driver.cpp -o test_driver.o
+# g++ -g {extra_flags} -o controller test_driver.o controller.o
+# For ASan: extra_flags = "-fsanitize=address -fno-omit-frame-pointer"
+# For coverage: extra_flags = "-fprofile-arcs -ftest-coverage"
 epsilon = 0.5
-iteration_timeout = 1.0
+iteration_timeout = 5.0       # TestRunner default
+startup_timeout = 10.0        # TestRunner default
 claude_model = "claude-sonnet-4-20250514"
 max_tokens = 8192
 temperature = 0.0
@@ -270,13 +312,21 @@ ASan detects the memory error and crashes the controller, causing the test to **
 # Run tests (from test_examples/)
 ./test.sh n1
 
-# Run APR tool (once implemented)
+# Run APR tool
 python -m apr_tool \
     --source test_examples/controller.c \
     --header test_examples/controller.h \
     --driver test_examples/test_driver.cpp \
     --test-dir test_examples/test \
     --verbose
+
+# With ASan enabled
+python -m apr_tool \
+    --source test_examples/controller.c \
+    --header test_examples/controller.h \
+    --driver test_examples/test_driver.cpp \
+    --test-dir test_examples/test \
+    --enable-asan --verbose
 ```
 
 ## Implementation Status
@@ -303,13 +353,13 @@ python -m apr_tool \
   - `TestCaseInfo` for test case discovery
   - Compilation with coverage flags
   - Working directory management
+  - Note: `main.py` implements its own coverage collection using `coverage_driver.cpp` rather than using `CoverageCollector`
 
-- [x] **Test Suite** (`tests/`)
-  - 28 tests covering all SBFL functionality
-  - Tests for gcov parser
-  - Tests for all metrics (Ochiai, Tarantula, DStar, Jaccard)
-  - Edge case tests
-  - Realistic scenario tests
+- [x] **Coverage Driver** (`apr_tool/coverage/coverage_driver.cpp`)
+  - Lightweight C++ driver for gcov instrumentation
+  - Calls controller functions directly (no IPC)
+  - Flushes gcov via `__gcov_dump()` after each iteration
+  - Uses `_exit()` to skip atexit handlers on corrupted heaps
 
 - [x] **Test Runner** (`apr_tool/testing/runner.py`)
   - `TestRunner` class for running test cases via IPC
@@ -326,23 +376,60 @@ python -m apr_tool \
   - Support for index matching and cosine distance checks
 
 - [x] **Binary Data Format** (`apr_tool/testing/data_format.py`)
-  - `Vote` and `MappedJointTrajectoryPoint` dataclasses
+  - `Vote` dataclass with `idx`, `positions`, `velocities` fields
+  - `TrajectoryPoint` and `State` dataclasses for controller input parsing
   - Binary struct format definitions matching controller.h
   - `parse_vote()` and `parse_vote_file()` functions
-  - Handles struct alignment/padding correctly
+  - `parse_state()` and `parse_state_file()` for parsing binary test inputs
+  - `format_state_text()` for human-readable State representation (used in repair prompts)
+  - `get_comparison_vector()` for cosine distance computation
 
 - [x] **AddressSanitizer Support**
-  - Compile with `-fsanitize=address -fno-omit-frame-pointer` to enable ASan
+  - Compile with `-fsanitize=address -fno-omit-frame-pointer` via `--enable-asan`
   - ASan detects memory errors (use-after-free, buffer overflow, etc.)
   - Existing crash detection in TestRunner handles ASan-induced crashes
   - No special runner configuration needed - just compile with ASan flags
 
-### TODO / Open Items
+- [x] **Claude API Client** (`apr_tool/repair/claude_client.py`)
+  - `ClaudeClient` class using Anthropic SDK
+  - `repair()` method for file-based repair requests
+  - `repair_from_context()` for pre-built prompt contexts
+  - `RepairResponse` dataclass with repaired code, token usage, model info
 
-- [ ] Implement Claude API client (`apr_tool/repair/claude_client.py`)
-- [ ] Implement prompt builder (`apr_tool/repair/prompt_builder.py`)
-- [ ] Implement response parser (`apr_tool/repair/response_parser.py`)
-- [ ] Implement main CLI (`apr_tool/main.py`)
+- [x] **Prompt Builder** (`apr_tool/repair/prompt_builder.py`)
+  - `RepairPromptContext` and `PreviousAttempt` dataclasses
+  - `build_repair_prompt()` constructs prompts with SBFL results, test results, failing test input, and previous attempt feedback
+  - `failing_test_input` field: deserialized binary input from the first failing test iteration, giving Claude concrete context about what data triggers the bug
+  - `SYSTEM_PROMPT` instructs Claude to return raw repaired code
+  - `load_repair_context()` for loading source/header from files
+  - Numbered source code formatting for line reference
+
+- [x] **Response Parser** (`apr_tool/repair/response_parser.py`)
+  - `parse_repair_response()` extracts code from LLM responses
+  - Handles markdown code fences (```c, ```cpp, etc.)
+  - Falls back to raw text if no fences found
+
+- [x] **Main CLI** (`apr_tool/main.py`)
+  - Full CLI with argparse
+  - Three-phase repair loop: setup, coverage/SBFL, iterative repair
+  - All work happens in a temp directory (originals never modified)
+  - Saves prompts, patches, and repair reports to output directory
+  - Separate compilation for coverage runner vs. validation executable
+
+- [x] **Test Suite** (`tests/`)
+  - 60 unit tests across 4 test files using a custom test runner
+  - `test_sbfl.py` (22 tests): coverage matrix, all metrics, ranking, edge cases, realistic scenarios
+  - `test_gcov_parser.py` (6 tests): parsing, executed/executable/not-executed lines
+  - `test_data_format.py` (17 tests): struct sizes, vote parsing, state parsing, format_state_text, real data files
+  - `test_validator.py` (15 tests): cosine distance, validation logic, result formatting
+  - Integration tests:
+    - `test_integration_sbfl.py`: end-to-end SBFL with real controller.c
+    - `test_runner_integration.py`: runner execution, test discovery, ASan test
+    - `test_repair_client.py`: manual API test (requires ANTHROPIC_API_KEY)
+
+### Known Issues
+
+- `CoverageCollector` in `collector.py` is not used by `main.py`, which has its own coverage collection logic using `coverage_driver.cpp`.
 
 ## Running Tests
 
@@ -356,10 +443,15 @@ python3 tests/run_all_tests.py --include-integration
 # Run individual test files
 python3 tests/test_sbfl.py
 python3 tests/test_gcov_parser.py
-python3 tests/test_integration_sbfl.py
+python3 tests/test_data_format.py
+python3 tests/test_validator.py
 
-# Run runner integration tests (includes ASan test)
+# Run integration tests
+python3 tests/test_integration_sbfl.py
 python3 tests/test_runner_integration.py
+
+# Run repair client test (requires ANTHROPIC_API_KEY)
+python3 tests/test_repair_client.py
 ```
 
 ### Integration Tests

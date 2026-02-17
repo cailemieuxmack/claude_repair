@@ -1,9 +1,15 @@
 {
-  "success": false,
-  "attempts": 5,
-  "baseline_results": {
+  "success": true,
+  "attempt": 1,
+  "model": "claude-sonnet-4-20250514",
+  "tokens": {
+    "input": 40071,
+    "output": 1277
+  },
+  "test_results": {
     "n1": {
-      "passed": false
+      "passed": true,
+      "iterations": "10/10"
     }
   }
 }

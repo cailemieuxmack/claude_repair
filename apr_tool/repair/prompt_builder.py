@@ -32,6 +32,7 @@ class RepairPromptContext:
     suspicious_lines: list[SuspiciousnessScore] = field(default_factory=list)
     test_results: list[TestCaseResult] = field(default_factory=list)
     previous_attempts: list[PreviousAttempt] = field(default_factory=list)
+    failing_test_input: Optional[str] = None
 
 
 SYSTEM_PROMPT = """\
@@ -112,6 +113,12 @@ def build_repair_prompt(context: RepairPromptContext) -> str:
     if context.test_results:
         parts.append("=== Test Results ===")
         parts.append(_format_test_results(context.test_results))
+        parts.append("")
+
+    # Failing test input data
+    if context.failing_test_input:
+        parts.append("=== Failing Test Input (deserialized binary) ===")
+        parts.append(context.failing_test_input)
         parts.append("")
 
     # Previous attempts

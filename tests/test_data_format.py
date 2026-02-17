@@ -12,12 +12,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from apr_tool.testing.data_format import (
-    POINT_FORMAT, VOTE_FORMAT,
+    POINT_FORMAT, VOTE_FORMAT, POINT_SIZE,
     VOTE_SIZE, Vote,
     parse_vote, parse_vote_file,
+    TrajectoryPoint, State,
+    parse_state, parse_state_file,
+    format_state_text,
 )
 
-POINT_SIZE = struct.calcsize(POINT_FORMAT)
+POINT_SIZE_CALC = struct.calcsize(POINT_FORMAT)
 
 
 class TestFormatSizes:
@@ -25,6 +28,7 @@ class TestFormatSizes:
 
     def test_point_size(self):
         # 4*Q(8) + 4*100d(800) + i(4) + I(4) = 32 + 3200 + 8 = 3240
+        assert POINT_SIZE_CALC == 3240
         assert POINT_SIZE == 3240
 
     def test_vote_size(self):
@@ -106,6 +110,9 @@ class TestRealDataFiles:
 
         assert test_file.stat().st_size == VOTE_SIZE
 
+    def test_point_size_constant(self):
+        assert POINT_SIZE == POINT_SIZE_CALC
+
     def test_state_file_size(self):
         test_file = Path("/workspace/test_examples/test/n1/t1")
         if not test_file.exists():
@@ -116,12 +123,145 @@ class TestRealDataFiles:
         assert 800000 < actual_size < 900000
 
 
+class TestStateParsing:
+    """Tests for State parsing from real binary files."""
+
+    STATE_FILE = Path("/workspace/test_examples/test/n1/t1")
+
+    def test_parse_state_file(self):
+        if not self.STATE_FILE.exists():
+            print("  (skipping - test file not found)")
+            return
+
+        state = parse_state_file(self.STATE_FILE)
+
+        assert isinstance(state, State)
+        assert isinstance(state.idx, int)
+        assert isinstance(state.cur_time_seconds, int)
+        assert isinstance(state.joint_names, list)
+        assert isinstance(state.points_length, int)
+        assert isinstance(state.points, list)
+
+    def test_state_idx(self):
+        if not self.STATE_FILE.exists():
+            print("  (skipping - test file not found)")
+            return
+
+        state = parse_state_file(self.STATE_FILE)
+        # idx should be a small non-negative integer for the first iteration
+        assert state.idx >= 0
+
+    def test_state_joint_names(self):
+        if not self.STATE_FILE.exists():
+            print("  (skipping - test file not found)")
+            return
+
+        state = parse_state_file(self.STATE_FILE)
+        # Should have joint names (typically 6 for a robot arm)
+        assert len(state.joint_names) > 0
+        assert len(state.joint_names) <= 10
+        # Each name should be a non-empty ASCII string
+        for name in state.joint_names:
+            assert isinstance(name, str)
+            assert len(name) > 0
+
+    def test_state_points_length(self):
+        if not self.STATE_FILE.exists():
+            print("  (skipping - test file not found)")
+            return
+
+        state = parse_state_file(self.STATE_FILE)
+        assert state.points_length > 0
+        assert state.points_length <= 256
+        assert len(state.points) == state.points_length
+
+    def test_state_trajectory_point_fields(self):
+        if not self.STATE_FILE.exists():
+            print("  (skipping - test file not found)")
+            return
+
+        state = parse_state_file(self.STATE_FILE)
+        assert len(state.points) > 0
+
+        pt = state.points[0]
+        assert isinstance(pt, TrajectoryPoint)
+        assert pt.positions_length >= 0
+        assert pt.positions_length <= 100
+        assert len(pt.positions) == pt.positions_length
+        assert pt.velocities_length >= 0
+        assert pt.velocities_length <= 100
+        assert len(pt.velocities) == pt.velocities_length
+        assert pt.accelerations_length >= 0
+        assert pt.accelerations_length <= 100
+        assert len(pt.accelerations) == pt.accelerations_length
+        assert pt.effort_length >= 0
+        assert pt.effort_length <= 100
+        assert len(pt.effort) == pt.effort_length
+
+    def test_state_point_values_are_finite(self):
+        if not self.STATE_FILE.exists():
+            print("  (skipping - test file not found)")
+            return
+
+        import math
+        state = parse_state_file(self.STATE_FILE)
+        pt = state.points[0]
+        for v in pt.positions:
+            assert math.isfinite(v), f"Non-finite position value: {v}"
+        for v in pt.velocities:
+            assert math.isfinite(v), f"Non-finite velocity value: {v}"
+
+
+class TestFormatStateText:
+    """Tests for format_state_text()."""
+
+    STATE_FILE = Path("/workspace/test_examples/test/n1/t1")
+
+    def test_format_produces_nonempty_string(self):
+        if not self.STATE_FILE.exists():
+            print("  (skipping - test file not found)")
+            return
+
+        state = parse_state_file(self.STATE_FILE)
+        text = format_state_text(state)
+        assert isinstance(text, str)
+        assert len(text) > 0
+
+    def test_format_contains_key_fields(self):
+        if not self.STATE_FILE.exists():
+            print("  (skipping - test file not found)")
+            return
+
+        state = parse_state_file(self.STATE_FILE)
+        text = format_state_text(state)
+        assert "idx:" in text
+        assert "cur_time_seconds:" in text
+        assert "joint_names" in text
+        assert "points_length:" in text
+        assert "point[0]:" in text
+
+    def test_format_contains_point_data(self):
+        if not self.STATE_FILE.exists():
+            print("  (skipping - test file not found)")
+            return
+
+        state = parse_state_file(self.STATE_FILE)
+        text = format_state_text(state)
+        assert "positions(" in text
+        assert "velocities(" in text
+        assert "accelerations(" in text
+        assert "effort(" in text
+        assert "time=" in text
+
+
 def run_tests():
     """Run all tests and report results."""
     test_classes = [
         TestFormatSizes,
         TestVote,
         TestRealDataFiles,
+        TestStateParsing,
+        TestFormatStateText,
     ]
 
     total_tests = 0

@@ -41,12 +41,9 @@ void interpolate_trajectory_point(
     
     interpolate_point(traj_msg.points[ind], traj_msg.points[ind + 1], point_interp, delta);
     
-    // use after free vulnerability
-    // same heap chunk used for acceleration and effort data but not cleared between
     if (traj_msg.points[ind].accelerations_length > 0) {
         int buffer_size = (int)traj_msg.points[ind].accelerations[0];
        
-        // allow using chunk up to size 20
         if (buffer_size > 0 && buffer_size <= 20) {
             if (temp_buffer) free(temp_buffer);
             temp_buffer = malloc(buffer_size * sizeof(double));
@@ -58,7 +55,6 @@ void interpolate_trajectory_point(
                     temp_buffer[i] = traj_msg.points[ind].accelerations[i + 2];
                 }
 
-                // random calculations
                 double accel_sum = 0.0;
                 for (int i = 0; i < buffer_size; i++) {
                     accel_sum += temp_buffer[i];
@@ -66,36 +62,25 @@ void interpolate_trajectory_point(
                 printf("Acceleration sum: %f\n", accel_sum);
             }
         }
-
-        if (temp_buffer) {
-            free(temp_buffer);
-            temp_buffer = NULL;
-        }
     }
     
     if (traj_msg.points[ind].effort_length > 0) {
         int buffer_size = (int)traj_msg.points[ind].effort[0];
         
-        if (buffer_size > 0 && buffer_size <= 20) {
-            temp_buffer = malloc(buffer_size * sizeof(double));
+        if (buffer_size > 0 && buffer_size <= 20 && temp_buffer != NULL) {
+            double effort_base = temp_buffer[0];
+            printf("Processing effort data\n");
             
-            if (temp_buffer) {
-                printf("Processing effort data\n");
-                
-                for (int i = 0; i < buffer_size && i + 2 < (int)traj_msg.points[ind].effort_length; i++) {
-                    temp_buffer[i] = traj_msg.points[ind].effort[i + 2];
-                }
-                
-                double effort_sum = 0.0;
-                for (int i = 0; i < buffer_size && i < 8; i++) {
-                    effort_sum += temp_buffer[i];
-                }
-                
-                printf("Effort sum: %f\n", effort_sum);
-                
-                free(temp_buffer);
-                temp_buffer = NULL;
+            for (int i = 0; i < buffer_size && i + 2 < (int)traj_msg.points[ind].effort_length; i++) {
+                temp_buffer[i] = traj_msg.points[ind].effort[i + 2];
             }
+            
+            double effort_sum = 0.0;
+            for (int i = 0; i < buffer_size && i < 8; i++) {
+                effort_sum += temp_buffer[i];
+            }
+            
+            printf("Effort sum: %f\n", effort_sum);
         }
     }
 
