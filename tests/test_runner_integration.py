@@ -280,6 +280,160 @@ def test_runner_with_asan():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def compile_coverage_runner(workdir: Path, test_examples: Path,
+                            controller_name: str = "controller.c") -> Path:
+    """
+    Compile the coverage runner for a given controller source.
+
+    Returns path to the coverage_runner executable.
+    """
+    source_dir = workdir / "source"
+    source_dir.mkdir(exist_ok=True)
+
+    # Copy files
+    shutil.copy(test_examples / "controller.h", workdir / "controller.h")
+    shutil.copy(test_examples / controller_name, source_dir / controller_name)
+
+    # Copy coverage driver
+    cov_driver_src = Path("/workspace/apr_tool/coverage/coverage_driver.cpp")
+    shutil.copy(cov_driver_src, source_dir / "coverage_driver.cpp")
+
+    cov_flags = "-fprofile-arcs -ftest-coverage"
+
+    # Compile controller C source with coverage
+    result = subprocess.run(
+        f"gcc -g {cov_flags} -c {source_dir / controller_name} -o {source_dir / 'controller.o'}",
+        shell=True, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to compile {controller_name}: {result.stderr}")
+
+    # Compile coverage driver
+    result = subprocess.run(
+        f"g++ -g {cov_flags} -c {source_dir / 'coverage_driver.cpp'} -o {source_dir / 'coverage_driver.o'}",
+        shell=True, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to compile coverage_driver.cpp: {result.stderr}")
+
+    # Link
+    result = subprocess.run(
+        f"g++ -g {cov_flags} -o {source_dir / 'coverage_runner'} "
+        f"{source_dir / 'coverage_driver.o'} {source_dir / 'controller.o'}",
+        shell=True, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to link coverage runner: {result.stderr}")
+
+    return source_dir / "coverage_runner"
+
+
+def test_coverage_driver_infinite_loop():
+    """Test that the coverage driver handles infinite-loop controllers."""
+    test_examples = Path("/workspace/test_examples")
+    test_dir = test_examples / "test"
+
+    if not test_dir.exists():
+        print("Test directory not found, skipping")
+        return True
+
+    if not (test_examples / "inf_loop.c").exists():
+        print("inf_loop.c not found, skipping")
+        return True
+
+    workdir = Path(tempfile.mkdtemp(prefix="cov_infloop_test_"))
+    print(f"Working directory: {workdir}")
+
+    try:
+        # Compile coverage runner with the infinite-loop controller
+        print("Compiling coverage runner with inf_loop.c...")
+        cov_runner = compile_coverage_runner(workdir, test_examples,
+                                             controller_name="inf_loop.c")
+        source_dir = cov_runner.parent
+        print(f"Coverage runner: {cov_runner}")
+
+        # Discover n1 test case
+        n1_dir = test_dir / "n1"
+        assert n1_dir.exists(), "n1 test directory not found"
+        tc = TestCaseInfo.from_directory(n1_dir)
+        print(f"Test case: {tc.name}, {tc.num_iterations} iterations")
+
+        # Clean any stale gcda files
+        for gcda in source_dir.glob("*.gcda"):
+            gcda.unlink()
+
+        # Run coverage runner with short timeout (2 seconds per iteration)
+        timeout_secs = 2
+        print(f"Running coverage runner (timeout={timeout_secs}s per iteration)...")
+        import time
+        start = time.time()
+        result = subprocess.run(
+            [str(cov_runner), str(tc.path), str(tc.num_iterations),
+             str(timeout_secs)],
+            capture_output=True, text=True,
+            timeout=timeout_secs * tc.num_iterations + 30,
+        )
+        elapsed = time.time() - start
+        print(f"Coverage runner exited with code {result.returncode} in {elapsed:.1f}s")
+        if result.stderr:
+            print(f"  stderr: {result.stderr.strip()}")
+
+        # Should exit with code 2 (alarm timeout) since inf_loop.c hangs
+        assert result.returncode == 2, \
+            f"Expected exit code 2 (alarm timeout), got {result.returncode}"
+        print("Exit code 2 confirmed (alarm detected infinite loop)")
+
+        # Should complete in roughly timeout_secs, not 60s
+        assert elapsed < timeout_secs + 15, \
+            f"Coverage runner took {elapsed:.1f}s, expected < {timeout_secs + 15}s"
+        print(f"Completed within timeout ({elapsed:.1f}s)")
+
+        # Generate gcov report
+        subprocess.run(
+            f"gcov inf_loop.c", shell=True, cwd=source_dir,
+            capture_output=True, text=True,
+        )
+
+        gcov_file = source_dir / "inf_loop.c.gcov"
+        assert gcov_file.exists(), "gcov file was not generated"
+
+        # Parse gcov output to check which lines were covered
+        from apr_tool.coverage.gcov_parser import GcovParser
+        parser = GcovParser()
+        covered_lines = parser.get_executed_lines(gcov_file)
+        print(f"Covered {len(covered_lines)} lines")
+
+        # The infinite loop is at lines 46-63 of inf_loop.c.
+        # With the alarm-based gcov flush, we should see coverage for
+        # lines inside the loop body.
+        loop_body_lines = set(range(46, 64))  # lines 46-63
+        covered_loop_lines = loop_body_lines & covered_lines
+
+        print(f"Loop body lines (46-63) covered: {sorted(covered_loop_lines)}")
+
+        if covered_loop_lines:
+            print(f"SUCCESS: {len(covered_loop_lines)} loop body lines have coverage")
+        else:
+            print("WARNING: No loop body lines covered (gcov flush in signal handler "
+                  "may not have captured them)")
+
+        # At minimum, init() and the code leading up to the loop should be covered
+        assert 72 in covered_lines or 73 in covered_lines, \
+            "init() lines should be covered"
+        print("init() lines confirmed covered")
+
+        return True
+
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 def main():
     print("=" * 70)
     print("Test Runner Integration Tests")

@@ -166,6 +166,7 @@ def collect_coverage(
     coverage_runner: Path,
     test_cases: list[TestCaseInfo],
     verbose: bool,
+    iteration_timeout: int = 5,
 ) -> CoverageMatrix:
     """
     Collect gcov coverage for each test case using the lightweight coverage runner.
@@ -186,11 +187,21 @@ def collect_coverage(
         for gcda in source_dir.glob("*.gcda"):
             gcda.unlink()
 
+        # The coverage runner uses fork + alarm internally; the subprocess
+        # timeout here is a last-resort safety net above the driver's own.
+        driver_timeout = iteration_timeout * tc.num_iterations + 10
+        subprocess_timeout = driver_timeout + 10
+
         cov_result = subprocess.run(
-            [str(coverage_runner), str(tc.path), str(tc.num_iterations)],
-            capture_output=True, text=True, timeout=60,
+            [str(coverage_runner), str(tc.path), str(tc.num_iterations),
+             str(iteration_timeout)],
+            capture_output=True, text=True, timeout=subprocess_timeout,
         )
-        if cov_result.returncode != 0:
+        if cov_result.returncode == 2:
+            log(f"  Timeout: step() hung (likely infinite loop)", verbose)
+        elif cov_result.returncode == 3:
+            log(f"  Timeout: parent safety-net killed child", verbose)
+        elif cov_result.returncode != 0:
             log(f"  Coverage runner exited {cov_result.returncode}", verbose)
 
         # Generate gcov report
