@@ -28,6 +28,9 @@ from .repair.prompt_builder import (
     RepairPromptContext, PreviousAttempt, SYSTEM_PROMPT, build_repair_prompt,
 )
 
+# DEBUG - so that we can sleep in between prompts
+import time
+
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
@@ -491,6 +494,9 @@ def main(argv=None):
                 test_results=list(results.values()),
             ))
             (source_dir / source.name).write_text(original_source)
+
+            # DEBUG - try not to violate rate limits.
+            time.sleep(30)
 
         # All attempts exhausted
         print(f"Failed to repair after {args.max_attempts} attempts")
