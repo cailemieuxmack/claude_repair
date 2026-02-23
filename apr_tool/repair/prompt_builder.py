@@ -116,10 +116,11 @@ def build_repair_prompt(context: RepairPromptContext) -> str:
         parts.append("")
 
     # Failing test input data
-    if context.failing_test_input:
-        parts.append("=== Failing Test Input (deserialized binary) ===")
-        parts.append(context.failing_test_input)
-        parts.append("")
+    # DEBUG **** Commenting out for now so we don't run over the token limit.
+    # if context.failing_test_input:
+    #     parts.append("=== Failing Test Input (deserialized binary) ===")
+    #     parts.append(context.failing_test_input)
+    #     parts.append("")
 
     # Previous attempts
     if context.previous_attempts:
