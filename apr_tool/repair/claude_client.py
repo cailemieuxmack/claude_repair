@@ -83,8 +83,9 @@ class ClaudeClient:
 
         data = response.json()
         print(data["choices"][0]["message"]["content"])
-
-        repaired_code = parse_repair_response(data) # data["choices"][0]["message"]["content"] # 
+        content = data["choices"][0]["message"]["content"]
+        repaired_code = parse_repair_response(content)
+        #repaired_code = parse_repair_response(data) # data["choices"][0]["message"]["content"] # 
 
         return RepairResponse(
             repaired_code=repaired_code,
