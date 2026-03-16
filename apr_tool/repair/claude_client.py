@@ -81,8 +81,9 @@ class ClaudeClient:
             }
         )
 
+        print(f"[DEBUG] Status code: {response.status_code}")
+        print(f"[DEBUG] Response text: {response.text[:500]}")
         data = response.json()
-        print(data["choices"][0]["message"]["content"])
         content = data["choices"][0]["message"]["content"]
         repaired_code = parse_repair_response(content)
         #repaired_code = parse_repair_response(data) # data["choices"][0]["message"]["content"] # 
