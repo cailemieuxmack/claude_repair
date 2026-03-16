@@ -7,6 +7,8 @@ Uses the Anthropic SDK to call the Claude API.
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+import requests
+import os
 
 import anthropic
 
@@ -46,7 +48,8 @@ class ClaudeClient:
         max_tokens: int = 8192,
         temperature: float = 0.0,
     ):
-        self.client = anthropic.Anthropic(api_key=api_key)
+        #self.client = anthropic.Anthropic(api_key=api_key)
+        self.api_key = api_key
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
@@ -64,23 +67,29 @@ class ClaudeClient:
         """Request a repair using a pre-built context."""
         user_prompt = build_repair_prompt(context)
 
-        message = self.client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            temperature=self.temperature,
-            system=SYSTEM_PROMPT,
-            messages=[
-                {"role": "user", "content": user_prompt}
-            ],
+        response = requests.post(
+            "https://o.cumberland.isis.vanderbilt.edu/api/chat/completions",
+            headers={
+                "Authorization": f"Bearer {os.environ['ANTHROPIC_API_KEY']}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "nemotron-3-nano:30b-a3b-q8_0",
+                "messages": [
+                    {"role": "user", "content": user_prompt}
+                ]
+            }
         )
 
-        raw_response = message.content[0].text
-        repaired_code = parse_repair_response(raw_response)
+        data = response.json()
+        print(data["choices"][0]["message"]["content"])
+
+        repaired_code = parse_repair_response(data) # data["choices"][0]["message"]["content"] # 
 
         return RepairResponse(
             repaired_code=repaired_code,
-            raw_response=raw_response,
+            raw_response=data,
             model=self.model,
-            input_tokens=message.usage.input_tokens,
-            output_tokens=message.usage.output_tokens,
+            input_tokens=0, # FIXME
+            output_tokens=0, # FIXME
         )
