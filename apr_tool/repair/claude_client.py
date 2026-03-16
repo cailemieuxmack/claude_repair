@@ -70,7 +70,7 @@ class ClaudeClient:
         response = requests.post(
             "https://o.cumberland.isis.vanderbilt.edu/api/chat/completions",
             headers={
-                "Authorization": f"Bearer {os.environ['ANTHROPIC_API_KEY']}",
+                "Authorization": f"Bearer {os.environ['API_KEY']}",
                 "Content-Type": "application/json"
             },
             json={
