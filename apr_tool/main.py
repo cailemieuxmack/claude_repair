@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -379,6 +380,9 @@ def main(argv=None):
         client = ClaudeClient()
         original_source = source.read_text()
         previous_attempts: list[PreviousAttempt] = []
+        total_input_tokens = 0
+        total_output_tokens = 0
+        repair_start_time = time.time()
 
         for attempt in range(1, args.max_attempts + 1):
             log(f"=== Attempt {attempt}/{args.max_attempts} ===", True)
@@ -412,8 +416,11 @@ def main(argv=None):
                 log(f"API error: {e}", True)
                 continue
 
+            total_input_tokens += response.input_tokens
+            total_output_tokens += response.output_tokens
             log(
-                f"Received repair ({response.input_tokens} in, {response.output_tokens} out)",
+                f"Received repair ({response.input_tokens} in, {response.output_tokens} out; "
+                f"total: {total_input_tokens} in, {total_output_tokens} out)",
                 args.verbose,
             )
 
@@ -466,10 +473,11 @@ def main(argv=None):
                 report = {
                     "success": True,
                     "attempt": attempt,
+                    "elapsed_seconds": round(time.time() - repair_start_time, 2),
                     "model": response.model,
                     "tokens": {
-                        "input": response.input_tokens,
-                        "output": response.output_tokens,
+                        "input": total_input_tokens,
+                        "output": total_output_tokens,
                     },
                     "test_results": {
                         name: {
@@ -504,6 +512,11 @@ def main(argv=None):
         report = {
             "success": False,
             "attempts": args.max_attempts,
+            "elapsed_seconds": round(time.time() - repair_start_time, 2),
+            "tokens": {
+                "input": total_input_tokens,
+                "output": total_output_tokens,
+            },
             "baseline_results": {
                 name: {"passed": r.passed}
                 for name, r in baseline_results.items()

@@ -74,7 +74,7 @@ class ClaudeClient:
                 "Content-Type": "application/json"
             },
             json={
-                "model": "nemotron-3-nano:30b-a3b-q8_0",
+                "model": "deepseek-r1:70b",
                 "messages": [
                     {"role": "user", "content": user_prompt}
                 ]
@@ -83,9 +83,12 @@ class ClaudeClient:
 
         print(f"[DEBUG] Status code: {response.status_code}")
         print(f"[DEBUG] Response text: {response.text[:500]}")
+        if not response.ok:
+            raise RuntimeError(f"API request failed with status {response.status_code}: {response.text[:200]}")
         data = response.json()
         content = data["choices"][0]["message"]["content"]
-        repaired_code = parse_repair_response(content)
+        print(content)
+        repaired_code = parse_repair_response(response)
         #repaired_code = parse_repair_response(data) # data["choices"][0]["message"]["content"] # 
 
         return RepairResponse(
