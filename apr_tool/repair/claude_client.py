@@ -87,14 +87,12 @@ class ClaudeClient:
             raise RuntimeError(f"API request failed with status {response.status_code}: {response.text[:200]}")
         data = response.json()
         content = data["choices"][0]["message"]["content"]
-        print(content)
-        repaired_code = parse_repair_response(response)
-        #repaired_code = parse_repair_response(data) # data["choices"][0]["message"]["content"] # 
+        repaired_code = parse_repair_response(content)
 
         return RepairResponse(
             repaired_code=repaired_code,
             raw_response=data,
-            model=self.model,
-            input_tokens=0, # FIXME
-            output_tokens=0, # FIXME
+            model=data.get("model", self.model),
+            input_tokens=data["usage"]["prompt_tokens"],
+            output_tokens=data["usage"]["completion_tokens"],
         )
