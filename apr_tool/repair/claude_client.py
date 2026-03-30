@@ -74,7 +74,7 @@ class ClaudeClient:
                 "Content-Type": "application/json"
             },
             json={
-                "model": "nemotron-3-nano:30b-a3b-q8_0",
+                "model": "llama4:17b-scout-16e-instruct-q8_0",
                 "messages": [
                     {"role": "user", "content": user_prompt}
                 ]
