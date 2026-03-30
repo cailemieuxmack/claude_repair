@@ -40,7 +40,7 @@ You are an expert C programmer specializing in debugging and repairing buggy cod
 Your task is to analyze the provided C source code and fix any bugs you find.
 
 IMPORTANT INSTRUCTIONS:
-1. Return ONLY the complete, repaired source code file
+1. Return ONLY the complete, repaired .c source file — do NOT include the header (.h) file
 2. Do NOT include any explanations, comments about your changes, or markdown formatting
 3. Do NOT use code fences (```) or any other markup
 4. The code must compile without errors
@@ -129,7 +129,10 @@ def build_repair_prompt(context: RepairPromptContext) -> str:
             parts.append(_format_previous_attempt(attempt))
             parts.append("")
 
-    parts.append("Fix the bug(s) and return the complete repaired source file.")
+    parts.append(
+        f"Fix the bug(s) and return the complete repaired {context.source_filename} only. "
+        f"Do NOT include {context.header_filename or 'the header file'} in your response."
+    )
 
     return '\n'.join(parts)
 
