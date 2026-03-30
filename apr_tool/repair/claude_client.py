@@ -74,7 +74,7 @@ class ClaudeClient:
                 "Content-Type": "application/json"
             },
             json={
-                "model": "deepseek-r1:70b",
+                "model": "nemotron-3-nano:30b-a3b-q8_0",
                 "messages": [
                     {"role": "user", "content": user_prompt}
                 ]
