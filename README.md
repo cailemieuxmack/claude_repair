@@ -279,6 +279,75 @@ python -m apr_tool \
     --verbose
 ```
 
+## Dockerized Usage
+
+The tool can be run in a container so you don't need `gcc`/`g++`/`gcov` or a
+Python environment on the host. The image is based on Ubuntu 24.04 and bundles
+the toolchain, the `anthropic` SDK, and the `apr_tool` package.
+
+### Build
+
+From the repository root (where the `Dockerfile` lives):
+
+```bash
+docker build -t apr-tool .
+```
+
+### Run
+
+Mount your buggy code as `/input` and a directory for results as `/output`,
+and provide your Anthropic API key as an environment variable:
+
+```bash
+docker run --rm \
+    -e ANTHROPIC_API_KEY=sk-ant-... \
+    -v /path/to/your/code:/input \
+    -v /path/to/output:/output \
+    apr-tool --verbose
+```
+
+The API key is read at run time only; it is never baked into the image.
+
+### Mounted input layout
+
+The `/input` directory must contain (default filenames shown):
+
+```
+/input/
+├── controller.c          # buggy source
+├── controller.h          # header
+├── test_driver.cpp       # IPC test harness
+└── test/                 # test cases: n1/, n2/, p1/, ...
+    └── n1/
+        ├── t1, t2, ...        # binary input files (State struct)
+        └── output.t1, ...     # binary oracle files (Vote struct)
+```
+
+Each test case directory must contain the binary `t*` / `output.t*` fixture
+files — a directory with no `t*` files is skipped, and a `/input/test` with no
+usable cases fails with `No test cases found`.
+
+### Mounted output
+
+The repaired `controller.c`, `controller.c.patch`, `repair_report.json`, and
+`prompt_attempt_N.txt` files are written to `/output`.
+
+### Extra flags and overrides
+
+Any arguments after the image name are forwarded to the tool, e.g.:
+
+```bash
+docker run --rm \
+    -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+    -v "$PWD/test_examples:/input" \
+    -v "$PWD/apr_output:/output" \
+    apr-tool --verbose --enable-asan --max-attempts 8
+```
+
+If your filenames differ from the defaults, override them without rebuilding
+via environment variables: `SOURCE_NAME`, `HEADER_NAME`, `DRIVER_NAME`, and
+`TEST_SUBDIR` (e.g. `-e SOURCE_NAME=bug.c -e TEST_SUBDIR=cases`).
+
 ## Implementation Status
 
 ### Completed

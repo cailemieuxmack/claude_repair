@@ -1,5 +1,5 @@
---- /input/controller.c	2026-07-03 16:03:54.120442596 +0000
-+++ /output/controller.c	2026-07-03 16:06:00.598011540 +0000
+--- /isis/home/cailm/ros2_ws/src/ros2-control-vuln-seeding/repair/controller.c	2026-06-23 15:09:52.535225248 +0000
++++ /isis/home/cailm/ros2_ws/src/ros2-control-vuln-seeding/repair/repair_output/controller.c	2026-06-23 15:10:04.247183187 +0000
 @@ -20,11 +20,13 @@
      const MappedJointTrajectoryPoint point_2,
      MappedJointTrajectoryPoint * point_interp, double delta)

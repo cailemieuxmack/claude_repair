@@ -42,7 +42,7 @@ class ClaudeClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-sonnet-4-5",
         max_tokens: int = 8192,
         temperature: float = 0.0,
     ):

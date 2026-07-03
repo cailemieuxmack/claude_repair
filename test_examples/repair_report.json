@@ -1,7 +1,7 @@
 {
   "success": true,
   "attempt": 1,
-  "elapsed_seconds": 9.65,
+  "elapsed_seconds": 10.18,
   "model": "claude-sonnet-4-5",
   "tokens": {
     "input": 2370,
